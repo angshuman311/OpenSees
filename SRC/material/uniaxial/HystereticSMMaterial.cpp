@@ -1281,6 +1281,16 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
     double rotmp2 = TrotMax - (1.0 - pinchY) * maxmom / (Eup * kp);
     double rotch = rotrel + (rotmp2 - rotrel) * pinchX;                   // changed on 7/11/2006
 
+    // The reload line passes through the committed state, so that the response is continuous
+    // from one step to the next. Its slope is raised where needed so that the line still meets
+    // the retained envelope at the retained extreme (continuous reconnection).
+    double Ereload = Eup * kp;
+    if (TrotMax - Cstrain > tiny && maxmom > Cstress) {
+        double connecting = (maxmom - Cstress) / (TrotMax - Cstrain);
+        if (connecting > Ereload)
+            Ereload = connecting;
+    }
+
     //opserr << "Eup,maxmom,kp: " << Eup << "," << maxmom << "," << kp << endln;
     //opserr << "rotmp2,rotch,0: " << rotmp2 << "," << rotch << "," << 0 << endln;
 
@@ -1304,11 +1314,11 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
         }
         else {
             Ttangent = maxmom * pinchY / (rotch - rotrel);
-            tmpmo1 = Eup * kp * (Tstrain - TrotNu);
+            tmpmo1 = Cstress + Ereload * dStrain;
             tmpmo2 = (Tstrain - rotrel) * Ttangent;
             if (tmpmo1 < tmpmo2) {
                 Tstress = tmpmo1;
-                Ttangent = Eup * kp;
+                Ttangent = Ereload;
             }
             else
                 Tstress = tmpmo2;
@@ -1317,11 +1327,11 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
 
     else {
         Ttangent = (1.0 - pinchY) * maxmom / (TrotMax - rotch);
-        tmpmo1 = Eup * kp * (Tstrain - TrotNu);
+        tmpmo1 = Cstress + Ereload * dStrain;
         tmpmo2 = pinchY * maxmom + (Tstrain - rotch) * Ttangent;
         if (tmpmo1 < tmpmo2) {
             Tstress = tmpmo1;
-            Ttangent = Eup * kp;
+            Ttangent = Ereload;
         }
         else
             Tstress = tmpmo2;
@@ -1475,6 +1485,15 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
     //double rotch = rotmp1 + (rotmp2-rotmp1)*pinchX;
     double rotch = rotrel + (rotmp2 - rotrel) * pinchX;                   // changed on 7/11/2006
 
+    // The reload line passes through the committed state; its slope is raised where needed so
+    // that the line still meets the retained envelope at the retained extreme.
+    double Ereload = Eun * kn;
+    if (Cstrain - TrotMin > tiny && minmom < Cstress) {
+        double connecting = (Cstress - minmom) / (Cstrain - TrotMin);
+        if (connecting > Ereload)
+            Ereload = connecting;
+    }
+
     double tmpmo1;
     double tmpmo2;
 
@@ -1494,11 +1513,11 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
         }
         else {
             Ttangent = minmom * pinchY / (rotch - rotrel);
-            tmpmo1 = Eun * kn * (Tstrain - TrotPu);
+            tmpmo1 = Cstress + Ereload * dStrain;
             tmpmo2 = (Tstrain - rotrel) * Ttangent;
             if (tmpmo1 > tmpmo2) {
                 Tstress = tmpmo1;
-                Ttangent = Eun * kn;
+                Ttangent = Ereload;
             }
             else
                 Tstress = tmpmo2;
@@ -1507,11 +1526,11 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
 
     else {
         Ttangent = (1.0 - pinchY) * minmom / (TrotMin - rotch);
-        tmpmo1 = Eun * kn * (Tstrain - TrotPu);
+        tmpmo1 = Cstress + Ereload * dStrain;
         tmpmo2 = pinchY * minmom + (Tstrain - rotch) * Ttangent;
         if (tmpmo1 > tmpmo2) {
             Tstress = tmpmo1;
-            Ttangent = Eun * kn;
+            Ttangent = Ereload;
         }
         else
             Tstress = tmpmo2;

@@ -16,6 +16,7 @@ NEGATIVE_ENVELOPE = (
     -68.03635518884792, -0.33779606261927597,
     0.0, -0.33794004766395014,
 )
+YIELD_ROTATION = POSITIVE_ENVELOPE[1]
 RETAINED_MAXIMUM = 0.0009391377421725002
 COMMITTED_DEFORMATIONS = (
     RETAINED_MAXIMUM,
@@ -30,7 +31,7 @@ def advance(increment):
     assert ops.analyze(1) == 0
 
 
-def reconnection_residual(sign):
+def build_model():
     ops.wipe()
     ops.model("basic", "-ndm", 2, "-ndf", 3)
     ops.node(1, 0.0, 0.0)
@@ -58,6 +59,10 @@ def reconnection_residual(sign):
     ops.integrator("DisplacementControl", 2, 2, EPSILON)
     ops.analysis("Static")
 
+
+def reconnection_residual(sign):
+    build_model()
+
     current = 0.0
     for deformation in COMMITTED_DEFORMATIONS:
         target = sign * deformation
@@ -81,9 +86,37 @@ def reconnection_residual(sign):
     )
 
 
+def partial_unloading_reload_residual(sign):
+    """Load past yield, unload a little (the force keeps its sign), then reload
+    by a very small increment. The force must continue from the committed
+    state along the committed tangent; a reload line anchored at zero force
+    jumps instead."""
+    build_model()
+
+    advance(sign * 2.0 * YIELD_ROTATION)
+    advance(-sign * 0.1 * YIELD_ROTATION)
+    force_before = ops.eleResponse(1, "material", 1, "stress")[0]
+    tangent_before = ops.eleResponse(1, "material", 1, "tangent")[0]
+
+    increment = sign * 1.0e-7 * YIELD_ROTATION
+    advance(increment)
+    force_after = ops.eleResponse(1, "material", 1, "stress")[0]
+    ops.wipe()
+
+    return force_after - force_before - tangent_before * increment
+
+
 def test_positive_reload_reconnects_continuously():
     assert abs(reconnection_residual(1.0)) < 1.0e-9
 
 
 def test_negative_reload_reconnects_continuously():
     assert abs(reconnection_residual(-1.0)) < 1.0e-9
+
+
+def test_positive_reload_after_partial_unloading_is_continuous():
+    assert abs(partial_unloading_reload_residual(1.0)) < 1.0e-9
+
+
+def test_negative_reload_after_partial_unloading_is_continuous():
+    assert abs(partial_unloading_reload_residual(-1.0)) < 1.0e-9
