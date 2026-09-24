@@ -1030,6 +1030,10 @@ HystereticSMMaterial::setTrialStrain(double strain, double strainRate)
     TenergyD = CenergyD;
     TrotPu = CrotPu;
     TrotNu = CrotNu;
+    TanchorRotP = CanchorRotP;
+    TanchorStressP = CanchorStressP;
+    TanchorRotN = CanchorRotN;
+    TanchorStressN = CanchorStressN;
 
     TrotMaxDuctUsed = CrotMaxDuctUsed;
     TrotMinDuctUsed = CrotMinDuctUsed;
@@ -1259,6 +1263,21 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
 
     TloadIndicator = 1;
 
+    if (CloadIndicator == 2) {
+        // A reversal in this step: the reload line of the new segment is anchored here and stays anchored until
+        // the next reversal, so that the stress is a fixed function of the rotation along the segment (the result
+        // does not depend on where the commits fall). Full reversal (the force has crossed zero): the zero-force
+        // point. Partial reversal (the force keeps its sign): the committed reversal point.
+        if (Cstress <= 0.0) {
+            TanchorRotP = TrotNu;
+            TanchorStressP = 0.0;
+        }
+        else {
+            TanchorRotP = Cstrain;
+            TanchorStressP = Cstress;
+        }
+    }
+
     if (TrotMax > POS_INF_STRAIN)
         TrotMax = POS_INF_STRAIN;
 
@@ -1281,12 +1300,12 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
     double rotmp2 = TrotMax - (1.0 - pinchY) * maxmom / (Eup * kp);
     double rotch = rotrel + (rotmp2 - rotrel) * pinchX;                   // changed on 7/11/2006
 
-    // The reload line passes through the committed state, so that the response is continuous
-    // from one step to the next. Its slope is raised where needed so that the line still meets
-    // the retained envelope at the retained extreme (continuous reconnection).
+    // The reload line starts at the anchor of the segment (continuous with the committed state at the reversal).
+    // Its slope is raised where needed so that the line still meets the retained envelope at the retained
+    // extreme (continuous reconnection).
     double Ereload = Eup * kp;
-    if (TrotMax - Cstrain > tiny && maxmom > Cstress) {
-        double connecting = (maxmom - Cstress) / (TrotMax - Cstrain);
+    if (TrotMax - TanchorRotP > tiny && maxmom > TanchorStressP) {
+        double connecting = (maxmom - TanchorStressP) / (TrotMax - TanchorRotP);
         if (connecting > Ereload)
             Ereload = connecting;
     }
@@ -1314,7 +1333,7 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
         }
         else {
             Ttangent = maxmom * pinchY / (rotch - rotrel);
-            tmpmo1 = Cstress + Ereload * dStrain;
+            tmpmo1 = TanchorStressP + Ereload * (Tstrain - TanchorRotP);
             tmpmo2 = (Tstrain - rotrel) * Ttangent;
             if (tmpmo1 < tmpmo2) {
                 Tstress = tmpmo1;
@@ -1327,7 +1346,7 @@ HystereticSMMaterial::positiveIncrement(double dStrain)
 
     else {
         Ttangent = (1.0 - pinchY) * maxmom / (TrotMax - rotch);
-        tmpmo1 = Cstress + Ereload * dStrain;
+        tmpmo1 = TanchorStressP + Ereload * (Tstrain - TanchorRotP);
         tmpmo2 = pinchY * maxmom + (Tstrain - rotch) * Ttangent;
         if (tmpmo1 < tmpmo2) {
             Tstress = tmpmo1;
@@ -1456,6 +1475,18 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
 
     TloadIndicator = 2;
 
+    if (CloadIndicator == 1) {
+        // A reversal in this step: the anchor of the negative reload line (see positiveIncrement).
+        if (Cstress >= 0.0) {
+            TanchorRotN = TrotPu;
+            TanchorStressN = 0.0;
+        }
+        else {
+            TanchorRotN = Cstrain;
+            TanchorStressN = Cstress;
+        }
+    }
+
     if (TrotMin < NEG_INF_STRAIN)
         TrotMin = NEG_INF_STRAIN;
 
@@ -1485,11 +1516,11 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
     //double rotch = rotmp1 + (rotmp2-rotmp1)*pinchX;
     double rotch = rotrel + (rotmp2 - rotrel) * pinchX;                   // changed on 7/11/2006
 
-    // The reload line passes through the committed state; its slope is raised where needed so
-    // that the line still meets the retained envelope at the retained extreme.
+    // The reload line starts at the anchor of the segment; its slope is raised where needed so that
+    // the line still meets the retained envelope at the retained extreme.
     double Ereload = Eun * kn;
-    if (Cstrain - TrotMin > tiny && minmom < Cstress) {
-        double connecting = (Cstress - minmom) / (Cstrain - TrotMin);
+    if (TanchorRotN - TrotMin > tiny && minmom < TanchorStressN) {
+        double connecting = (TanchorStressN - minmom) / (TanchorRotN - TrotMin);
         if (connecting > Ereload)
             Ereload = connecting;
     }
@@ -1513,7 +1544,7 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
         }
         else {
             Ttangent = minmom * pinchY / (rotch - rotrel);
-            tmpmo1 = Cstress + Ereload * dStrain;
+            tmpmo1 = TanchorStressN + Ereload * (Tstrain - TanchorRotN);
             tmpmo2 = (Tstrain - rotrel) * Ttangent;
             if (tmpmo1 > tmpmo2) {
                 Tstress = tmpmo1;
@@ -1526,7 +1557,7 @@ HystereticSMMaterial::negativeIncrement(double dStrain)
 
     else {
         Ttangent = (1.0 - pinchY) * minmom / (TrotMin - rotch);
-        tmpmo1 = Cstress + Ereload * dStrain;
+        tmpmo1 = TanchorStressN + Ereload * (Tstrain - TanchorRotN);
         tmpmo2 = pinchY * minmom + (Tstrain - rotch) * Ttangent;
         if (tmpmo1 > tmpmo2) {
             Tstress = tmpmo1;
@@ -1581,6 +1612,10 @@ HystereticSMMaterial::commitState(void)
     CrotMin = TrotMin;
     CrotPu = TrotPu;
     CrotNu = TrotNu;
+    CanchorRotP = TanchorRotP;
+    CanchorStressP = TanchorStressP;
+    CanchorRotN = TanchorRotN;
+    CanchorStressN = TanchorStressN;
     CenergyD = TenergyD;
     CloadIndicator = TloadIndicator;
 
@@ -1606,6 +1641,10 @@ HystereticSMMaterial::revertToLastCommit(void)
     TrotMin = CrotMin;
     TrotPu = CrotPu;
     TrotNu = CrotNu;
+    TanchorRotP = CanchorRotP;
+    TanchorStressP = CanchorStressP;
+    TanchorRotN = CanchorRotN;
+    TanchorStressN = CanchorStressN;
     TenergyD = CenergyD;
     TloadIndicator = CloadIndicator;
 
@@ -1631,6 +1670,8 @@ HystereticSMMaterial::revertToStart(void)
     CrotMin = 0.0;
     CrotPu = 0.0;
     CrotNu = 0.0;
+    CanchorRotP = CanchorStressP = CanchorRotN = CanchorStressN = 0.0;
+    TanchorRotP = TanchorStressP = TanchorRotN = TanchorStressN = 0.0;
     CenergyD = 0.0;
     CloadIndicator = 0;
 
@@ -1682,6 +1723,10 @@ HystereticSMMaterial::getCopy(void)
     theCopy->CrotMin = CrotMin;
     theCopy->CrotPu = CrotPu;
     theCopy->CrotNu = CrotNu;
+    theCopy->CanchorRotP = CanchorRotP;
+    theCopy->CanchorStressP = CanchorStressP;
+    theCopy->CanchorRotN = CanchorRotN;
+    theCopy->CanchorStressN = CanchorStressN;
     theCopy->CenergyD = CenergyD;
     theCopy->CloadIndicator = CloadIndicator;
     theCopy->Cstress = Cstress;
@@ -1738,7 +1783,7 @@ HystereticSMMaterial::sendSelf(int commitTag, Channel& theChannel)
 {
     int res = 0;
 
-    static Vector data(106);
+    static Vector data(110);
 
     data(0) = this->getTag();
     data(1) = mom1p;
@@ -1795,6 +1840,7 @@ HystereticSMMaterial::sendSelf(int commitTag, Channel& theChannel)
     data(51) = TrotMinDuctUsed;
     data(52) = CdamfcPeak;
     data(53) = TdamfcPeak;
+    data(106) = CanchorRotP; data(107) = CanchorStressP; data(108) = CanchorRotN; data(109) = CanchorStressN;
 
     data(54) = mom2p_ref; data(55) = mom3p_ref; data(56) = mom4p_ref;
     data(57) = mom5p_ref; data(58) = mom6p_ref; data(59) = mom7p_ref;
@@ -1840,7 +1886,7 @@ HystereticSMMaterial::recvSelf(int commitTag, Channel& theChannel,
 {
     int res = 0;
 
-    static Vector data(106);
+    static Vector data(110);
     res = theChannel.recvVector(this->getDbTag(), commitTag, data);
 
     if (res < 0) {
@@ -1904,6 +1950,7 @@ HystereticSMMaterial::recvSelf(int commitTag, Channel& theChannel,
         TrotMinDuctUsed = data(51);
         CdamfcPeak = data(52);
         TdamfcPeak = data(53);
+        CanchorRotP = data(106); CanchorStressP = data(107); CanchorRotN = data(108); CanchorStressN = data(109);
 
         mom2p_ref = data(54); mom3p_ref = data(55); mom4p_ref = data(56);
         mom5p_ref = data(57); mom6p_ref = data(58); mom7p_ref = data(59);
@@ -1939,6 +1986,10 @@ HystereticSMMaterial::recvSelf(int commitTag, Channel& theChannel,
         TrotMin = CrotMin;
         TrotPu = CrotPu;
         TrotNu = CrotNu;
+        TanchorRotP = CanchorRotP;
+        TanchorStressP = CanchorStressP;
+        TanchorRotN = CanchorRotN;
+        TanchorStressN = CanchorStressN;
         TenergyD = CenergyD;
         TloadIndicator = CloadIndicator;
         Tstress = Cstress;

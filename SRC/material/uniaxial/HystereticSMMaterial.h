@@ -170,6 +170,10 @@ private:
 	double TrotMin;
 	double TrotPu;
 	double TrotNu;
+	double TanchorRotP;    // anchor of the positive reload line: rotation and stress at the last reversal
+	double TanchorStressP; // (the zero-force point after a full reversal, the committed point after a partial one)
+	double TanchorRotN;    // the same for the negative reload line
+	double TanchorStressN;
 	double TenergyD;
 	int TloadIndicator;
 
@@ -183,6 +187,10 @@ private:
 	double CrotMin;
 	double CrotPu;
 	double CrotNu;
+	double CanchorRotP;
+	double CanchorStressP;
+	double CanchorRotN;
+	double CanchorStressN;
 	double CenergyD;
 	int CloadIndicator;
 

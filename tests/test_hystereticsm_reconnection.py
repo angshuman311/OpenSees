@@ -31,6 +31,18 @@ def advance(increment):
     assert ops.analyze(1) == 0
 
 
+def deformation():
+    return ops.nodeDisp(2, 2)
+
+
+def force():
+    return ops.eleResponse(1, "material", 1, "stress")[0]
+
+
+def tangent():
+    return ops.eleResponse(1, "material", 1, "tangent")[0]
+
+
 def build_model():
     ops.wipe()
     ops.model("basic", "-ndm", 2, "-ndf", 3)
@@ -64,19 +76,19 @@ def reconnection_residual(sign):
     build_model()
 
     current = 0.0
-    for deformation in COMMITTED_DEFORMATIONS:
-        target = sign * deformation
+    for target in COMMITTED_DEFORMATIONS:
+        target = sign * target
         advance(target - current)
         current = target
 
     retained_extreme = sign * RETAINED_MAXIMUM
     inside = retained_extreme - sign * EPSILON
     advance(inside - current)
-    force_inside = ops.eleResponse(1, "material", 1, "stress")[0]
-    tangent_inside = ops.eleResponse(1, "material", 1, "tangent")[0]
+    force_inside = force()
+    tangent_inside = tangent()
 
     advance(retained_extreme - inside)
-    force_at_extreme = ops.eleResponse(1, "material", 1, "stress")[0]
+    force_at_extreme = force()
     ops.wipe()
 
     return (
@@ -95,15 +107,49 @@ def partial_unloading_reload_residual(sign):
 
     advance(sign * 2.0 * YIELD_ROTATION)
     advance(-sign * 0.1 * YIELD_ROTATION)
-    force_before = ops.eleResponse(1, "material", 1, "stress")[0]
-    tangent_before = ops.eleResponse(1, "material", 1, "tangent")[0]
+    force_before = force()
+    tangent_before = tangent()
 
     increment = sign * 1.0e-7 * YIELD_ROTATION
     advance(increment)
-    force_after = ops.eleResponse(1, "material", 1, "stress")[0]
+    force_after = force()
     ops.wipe()
 
     return force_after - force_before - tangent_before * increment
+
+
+def zero_crossing_split_residual(sign):
+    """Load past yield, reverse past yield on the other side (the force changes
+    sign), then reload towards the retained extreme: once with one increment
+    that crosses the zero-force point, once with a committed step exactly at
+    that point, and once with a committed step before it (the force still of
+    the reversed sign). The final force must be the same on the three paths,
+    so the reload line must be anchored at the zero-force point of the
+    reversal, not at the last committed state."""
+    def excursion():
+        build_model()
+        advance(sign * 2.0 * YIELD_ROTATION)
+        advance(-sign * 3.5 * YIELD_ROTATION)
+
+    # the zero-force point of the reload, projected from the reversal state
+    # along the unloading stiffness (read from a probe step)
+    excursion()
+    strain_reversal = deformation()
+    force_reversal = force()
+    advance(sign * 1.0e-9 * YIELD_ROTATION)
+    zero = strain_reversal - force_reversal / tangent()
+    target = zero + sign * 0.5 * YIELD_ROTATION      # on the reload line, before the pinching branch
+
+    forces = []
+    for committed_steps in ((), (zero,), (zero - sign * 0.3 * YIELD_ROTATION,)):
+        excursion()
+        for step in committed_steps:
+            advance(step - deformation())
+        advance(target - deformation())
+        forces.append(force())
+    ops.wipe()
+
+    return max(forces) - min(forces)
 
 
 def test_positive_reload_reconnects_continuously():
@@ -120,3 +166,11 @@ def test_positive_reload_after_partial_unloading_is_continuous():
 
 def test_negative_reload_after_partial_unloading_is_continuous():
     assert abs(partial_unloading_reload_residual(-1.0)) < 1.0e-9
+
+
+def test_positive_reload_across_zero_force_is_step_size_independent():
+    assert abs(zero_crossing_split_residual(1.0)) < 1.0e-9
+
+
+def test_negative_reload_across_zero_force_is_step_size_independent():
+    assert abs(zero_crossing_split_residual(-1.0)) < 1.0e-9
